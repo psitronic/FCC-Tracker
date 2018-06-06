@@ -10,10 +10,10 @@ mongoose.connect(process.env.MONGODB)
 // create MongoDB schema and model
 var exerciseSchema = new mongoose.Schema ({
   username: String,
-  exercises: [{
+  log: [{
     description: String,
     duration: Number,
-    date: { type: Date, 'default': Date.now }
+    date: Date
   }]
 });
 
@@ -33,17 +33,33 @@ app.get('/', (req, res) => {
 
 app.get("/api/exercise/log", (req, res, next) => {
   let userId = mongoose.Types.ObjectId(req.query.userId);// First need to convert string to ObjectId type
-  let from = (!req.query.from ? new Date("1900-01-01") : req.query.from);
-  let to = (!req.query.to ? new Date() : req.query.to);
-  let limit = (!req.query.limit ? 1000000 : req.query.limit);
+  let from = (!req.query.from ? new Date("1900-01-01") : new Date(req.query.from));
+  let to = (!req.query.to ? new Date() : new Date(req.query.to));
+  let limit = (!req.query.limit ? 1000000 : Number(req.query.limit));
   
-  console.log(userId);
+  console.log(limit);
   
   if (!userId){
     return next({message:"You should specify user id"});
   } else {
-    Exercise.aggregate([{$match:{_id:userId}},{ $unwind: "$exercises" },{$group:{_id:"$_id", count:{$sum:1}}}], (error, data) => {
-      console.log(data);
+    Exercise.aggregate([
+      {
+        $match:{$and:[{_id:userId},{$and:[{"log.date":{$gt: from}},{"log.date":{$lt: to}}]}]} //$and:[{$gt: from},{$lt: to}]
+      },
+      {
+       $project: {_id:1, username:1, "log.description":1, "log.duration":1, "log.date":1}
+      },
+      { 
+        $unwind: "$log"
+      },
+      {
+        $limit:limit
+      },
+      {
+        $group:{_id:"$_id", username: {$first:"$username"}, count:{$sum:1}, log:{$push:"$log"}}
+      }
+    ], (error, data) => {
+      res.json(data[0]);
     });
   };
 });
@@ -78,11 +94,11 @@ app.post("/api/exercise/add", (req, res, next) => {
   var duration = req.body.duration;
   var date = (req.body.date === '' ? Date.now() : req.body.date);
     
-  Exercise.findOneAndUpdate({_id:id}, {$push: {exercises:{description: description, duration: duration, date: date}}}, { upsert: true, new: true }, (error, data) => {
+  Exercise.findOneAndUpdate({_id:id}, {$push: {log:{description: description, duration: duration, date: date}}}, { upsert: true, new: true }, (error, data) => {
     if (error) {
       return next({message:error});
     } else {
-      var insertedData = data.exercises[data.exercises.length - 1];
+      var insertedData = data.log[data.log.length - 1];
       var obj = {
         username: data.username,
         _id: data._id,
