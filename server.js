@@ -30,6 +30,15 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/views/index.html')
 });
 
+app.get("/api/exercise/users", (req, res, next) =>{
+  Exercise.find({},{_id:1, username:1}, (error, data)=>{
+    if (error){
+      return next({message:error});
+    } else {
+      res.json(data);
+    };
+  });
+});
 
 app.get("/api/exercise/log", (req, res, next) => {
   let userId = mongoose.Types.ObjectId(req.query.userId);// First need to convert string to ObjectId type
@@ -37,17 +46,12 @@ app.get("/api/exercise/log", (req, res, next) => {
   let to = (!req.query.to ? new Date() : new Date(req.query.to));
   let limit = (!req.query.limit ? 1000000 : Number(req.query.limit));
   
-  console.log(limit);
-  
   if (!userId){
     return next({message:"You should specify user id"});
   } else {
     Exercise.aggregate([
       {
-        $match:{$and:[{_id:userId},{$and:[{"log.date":{$gt: from}},{"log.date":{$lt: to}}]}]} //$and:[{$gt: from},{$lt: to}]
-      },
-      {
-       $project: {_id:1, username:1, "log.description":1, "log.duration":1, "log.date":1}
+        $match:{_id:userId}
       },
       { 
         $unwind: "$log"
@@ -56,9 +60,23 @@ app.get("/api/exercise/log", (req, res, next) => {
         $limit:limit
       },
       {
+        $match:{"log.date":{$gte: from, $lte: to}}
+      },
+      {
+       $project: {_id:1, username:1, "log.description":1, "log.duration":1, "log.date":1}
+      },
+      {
         $group:{_id:"$_id", username: {$first:"$username"}, count:{$sum:1}, log:{$push:"$log"}}
       }
     ], (error, data) => {
+      
+      if (req.query.to){
+        data[0].to = to;
+      };
+      if (req.query.from){
+        data[0].from = from;
+      };
+      
       res.json(data[0]);
     });
   };
